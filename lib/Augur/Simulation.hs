@@ -2,50 +2,66 @@ module Augur.Simulation (
     initState,
     updateMonth,
     simulate,
-    monthlyNetIncome,
     monthlyExpenses,
     calculateEmergencyFund,
 ) where
 
 import Augur.Types
 import Data.Decimal
+import Data.Map qualified as M
 import Data.Time.Calendar.Month
+import GHC.Conc (retry)
 
 initState :: Month -> MonthState
-initState startMonth = MonthState (addMonths (-1) startMonth) 0 0 0 0 0
-
-monthlyNetIncome :: ModelConfig -> Money
-monthlyNetIncome config = monthlySalary * taxPercent * retirementAdjust
-  where
-    monthlySalary = config.salary / 12
-    taxPercent = 1 - config.effectiveTaxRate
-    retirementAdjust = 1 - sum (map snd config.retirementSavingPct)
+initState startMonth = MonthState (addMonths (-1) startMonth) 0 0 0 0 0 0 0 0
 
 monthlyExpenses :: ModelConfig -> Money
 monthlyExpenses config = sum $ map snd config.expenses
+
+calculateTaxes :: ModelConfig -> Money -> Money
+calculateTaxes config taxableIncome = taxableIncome * config.effectiveTaxRate
 
 updateMonth :: ModelConfig -> MonthState -> MonthState
 updateMonth config prev =
     MonthState
         { month
-        , income
+        , income = netIncome
         , totalExpenses
         , netChange
         , cashBalance
         , emergencyFundBalance
+        , balRoth401k
+        , balTrad401k
+        , taxes=prev.taxes + taxes
         }
   where
     month = addMonths 1 prev.month
-    income = monthlyNetIncome config
-    totalExpenses = monthlyExpenses config
-    netChange = income - totalExpenses
-    cashBalance = prev.cashBalance + netChange - (emergencyFundBalance - prev.emergencyFundBalance)
-    emergencyFundBalance = newEmergencyFundBalance prev.emergencyFundBalance (calculateEmergencyFund config) netChange
+    grossIncome = config.salary / 12
+    taxableIncome = grossIncome - trad401kContrib
 
-newEmergencyFundBalance :: Money -> Money -> Money -> Money
-newEmergencyFundBalance curr target income
+    -- netIncome: Income after tax
+    taxes = calculateTaxes config taxableIncome
+    netIncome = taxableIncome - taxes
+
+    totalExpenses = monthlyExpenses config
+    -- netChange: Income after expenses
+    netChange = netIncome - totalExpenses
+
+    -- Retirement is calculated based on income
+    trad401kContrib = grossIncome * config.trad401kContrib
+    roth401kContrib = netIncome * config.roth401kContrib
+    balTrad401k = prev.balTrad401k + trad401kContrib
+    balRoth401k = prev.balRoth401k + roth401kContrib
+
+    -- Everything else is calculated after tax, after expenses, using money from netChange
+    cashBalance = prev.cashBalance + netChange - emergencyFundContrib
+    emergencyFundContrib = emergencyFundBalance - prev.emergencyFundBalance
+    emergencyFundBalance = updateEmergencyFundBalance prev.emergencyFundBalance (calculateEmergencyFund config) netChange
+
+updateEmergencyFundBalance :: Money -> Money -> Money -> Money
+updateEmergencyFundBalance curr target income
     | curr >= target = curr
-    | otherwise = curr + (income * flex_pct)
+    | otherwise = min (curr + (income * flex_pct)) target
   where
     flex_pct = 0.7
 

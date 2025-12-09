@@ -7,9 +7,10 @@ module Augur.Pretty (
 
 import Augur.Types
 
-import Augur.Simulation (calculateEmergencyFund, monthlyExpenses, monthlyNetIncome)
+import Augur.Simulation (calculateEmergencyFund, monthlyExpenses)
 import Data.Decimal
 import Text.Printf
+import qualified Data.Map as M
 
 formatMoney :: Money -> String
 formatMoney amount = printf "%.0f" (realToFrac amount :: Double)
@@ -18,9 +19,9 @@ printSummary :: ModelConfig -> IO ()
 printSummary config = do
     putStrLn "Monthly Summary:"
     putStrLn $ "  Gross Monthly: $" ++ formatMoney (config.salary / 12)
-    putStrLn $ "  Net Monthly: $" ++ formatMoney (monthlyNetIncome config)
+    -- putStrLn $ "  Net Monthly: $" ++ formatMoney (monthlyNetIncome config)
     putStrLn $ "  Total Expenses: $" ++ formatMoney (monthlyExpenses config)
-    putStrLn $ "  Monthly Savings: $" ++ formatMoney (monthlyNetIncome config - monthlyExpenses config)
+    -- putStrLn $ "  Monthly Savings: $" ++ formatMoney (monthlyNetIncome config - monthlyExpenses config)
     putStrLn $ "  Target Emergency Fund Size: $" ++ formatMoney (calculateEmergencyFund config)
     putStrLn "\nExpense Breakdown:"
     mapM_ (\(name, amt) -> putStrLn $ "  " ++ name ++ ": $" ++ formatMoney amt) config.expenses
@@ -39,7 +40,8 @@ printSimulation states = do
     putStrLn header
     mapM_ printRow states
   where
-    header = "Month\t\tIncome\t\tExpenses\tNet\t\tBalance\t\tEmergency Fund"
+    header = "Month\t\tIncome\t\tExpenses\tNet\t\tBalance\t\tEmergency Fund\t\tRetirement\t\tTaxes"
+    printRow :: MonthState -> IO ()
     printRow s =
         putStrLn $
             show s.month
@@ -53,3 +55,7 @@ printSimulation states = do
                 ++ formatMoney s.cashBalance
                 ++ "\t\t$"
                 ++ formatMoney s.emergencyFundBalance
+                ++ "\t\t"
+                ++ "Trad401k: $" ++ formatMoney s.balTrad401k ++ "  Roth401k: $" ++ formatMoney s.balRoth401k
+                ++ "\t\t$"
+                ++ formatMoney s.taxes
