@@ -7,7 +7,7 @@ module Augur.Pretty (
 
 import Augur.Types
 
-import Augur.Simulation (monthlyExpenses, monthlyNetIncome)
+import Augur.Simulation (calculateEmergencyFund, monthlyExpenses, monthlyNetIncome)
 import Data.Decimal
 import Text.Printf
 
@@ -21,6 +21,7 @@ printSummary config = do
     putStrLn $ "  Net Monthly: $" ++ formatMoney (monthlyNetIncome config)
     putStrLn $ "  Total Expenses: $" ++ formatMoney (monthlyExpenses config)
     putStrLn $ "  Monthly Savings: $" ++ formatMoney (monthlyNetIncome config - monthlyExpenses config)
+    putStrLn $ "  Target Emergency Fund Size: $" ++ formatMoney (calculateEmergencyFund config)
     putStrLn "\nExpense Breakdown:"
     mapM_ (\(name, amt) -> putStrLn $ "  " ++ name ++ ": $" ++ formatMoney amt) config.expenses
 
@@ -35,10 +36,10 @@ printMonthState state = do
 printSimulation :: [MonthState] -> IO ()
 printSimulation states = do
     putStrLn "\nSimulation Results:"
-    putStrLn "Month\t\tIncome\t\tExpenses\tNet\t\tBalance"
-    putStrLn "------------------------------------------------------------------------"
+    putStrLn header
     mapM_ printRow states
   where
+    header = "Month\t\tIncome\t\tExpenses\tNet\t\tBalance\t\tEmergency Fund"
     printRow s =
         putStrLn $
             show s.month
@@ -50,3 +51,5 @@ printSimulation states = do
                 ++ formatMoney s.netChange
                 ++ "\t\t$"
                 ++ formatMoney s.cashBalance
+                ++ "\t\t$"
+                ++ formatMoney s.emergencyFundBalance

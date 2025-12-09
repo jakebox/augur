@@ -10,6 +10,7 @@ data ModelConfig = ModelConfig
     , effectiveTaxRate :: Decimal
     , expenses :: [(String, Decimal)]
     , retirementSavingPct :: [(String, Decimal)]
+    , emergencyFundMonths :: Integer
     }
     deriving (Show)
 
@@ -19,5 +20,6 @@ data MonthState = MonthState
     , totalExpenses :: Money
     , netChange :: Money
     , cashBalance :: Money
+    , emergencyFundBalance :: Money
     }
     deriving (Show)
