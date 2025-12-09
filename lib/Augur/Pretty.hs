@@ -12,8 +12,17 @@ import Data.Decimal
 import Text.Printf
 import qualified Data.Map as M
 
+-- Prints the money amount as a string, padded with spaces to 10 characters wide, 
+-- with 0 decimal places.
 formatMoney :: Money -> String
-formatMoney amount = printf "%.0f" (realToFrac amount :: Double)
+formatMoney amount = printf "%10.0f" (realToFrac amount :: Double)
+
+-- Helper function to format an individual Account's details
+formatAccount :: Account -> String
+formatAccount a =
+    "Balance: $" ++ formatMoney a.balance ++
+    " | Contrib: $" ++ formatMoney a.contributions ++
+    " | Gains: $" ++ formatMoney a.gains
 
 printSummary :: ModelConfig -> IO ()
 printSummary config = do
@@ -37,25 +46,35 @@ printMonthState state = do
 printSimulation :: [MonthState] -> IO ()
 printSimulation states = do
     putStrLn "\nSimulation Results:"
-    putStrLn header
+    -- 1. Print the header using printf for alignment
+    printf "%-5s %13s %13s %10s %10s %10s %10s\n"
+        ("Month" :: String)
+        ("Income" :: String)
+        ("Expenses" :: String)
+        ("Net" :: String)
+        ("Balance" :: String)
+        ("E-Fund" :: String)
+        ("Taxes" :: String)
+    putStrLn $ replicate 73 '-' -- Separator line
+    
     mapM_ printRow states
   where
-    header = "Month\t\tIncome\t\tExpenses\tNet\t\tBalance\t\tEmergency Fund\t\tRetirement\t\tTaxes"
+    -- Header variable is no longer needed
+
     printRow :: MonthState -> IO ()
-    printRow s =
+    printRow s = do
+        -- 1. Print the main row with fixed-width money values (widths match the header)
         putStrLn $
-            show s.month
-                ++ "\t\t$"
-                ++ formatMoney s.income
-                ++ "\t\t$"
-                ++ formatMoney s.totalExpenses
-                ++ "\t\t$"
-                ++ formatMoney s.netChange
-                ++ "\t\t$"
-                ++ formatMoney s.cashBalance
-                ++ "\t\t$"
-                ++ formatMoney s.emergencyFundBalance
-                ++ "\t\t"
-                ++ "Trad401k: $" ++ formatMoney s.balTrad401k ++ "  Roth401k: $" ++ formatMoney s.balRoth401k
-                ++ "\t\t$"
-                ++ formatMoney s.taxes
+            printf "%-5s %s %s %s %s %s %s"
+                (show s.month)  -- 5 wide (left aligned)
+                (formatMoney s.income)
+                (formatMoney s.totalExpenses)
+                (formatMoney s.netChange)
+                (formatMoney s.cashBalance)
+                (formatMoney s.emergencyFundBalance)
+                (formatMoney s.taxes)
+
+        -- 2. Print the detailed retirement accounts on new, indented lines
+        putStrLn $ "\n    Traditional 401k: " ++ formatAccount s.trad401k
+        putStrLn $ "    Roth 401k:        " ++ formatAccount s.roth401k
+        putStrLn "" -- Add a blank line for visual separation between months
