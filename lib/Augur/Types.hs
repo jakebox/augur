@@ -1,4 +1,4 @@
-module Augur.Types (Money, AccountBalances, ModelConfig (..), MonthState (..), Account (..), AccountType(..)) where
+module Augur.Types (Money, AccountBalances, ModelConfig (..), MonthState (..), Account (..), AccountType (..), TaxBracket(..)) where
 
 import Data.Decimal
 import Data.Map qualified as M
@@ -12,12 +12,20 @@ type AccountAllocations = M.Map String Decimal
 data AccountType = Roth | Traditional | Taxable
     deriving (Show)
 
+data TaxBracket = TaxBracket
+    { threshold :: Money
+    , rate :: Decimal
+    }
+    deriving (Show)
+
 data ModelConfig = ModelConfig
-    { salary :: Money
-    , effectiveTaxRate :: Decimal
+    { initialSalary :: Money
+    , start :: Month
+    , taxRate :: Decimal
     , expenses :: [(String, Decimal)]
     , trad401kContrib :: Decimal
     , roth401kContrib :: Decimal
+    , brokerageContrib :: Decimal
     , emergencyFundMonths :: Integer
     , annualReturn :: Decimal
     , salaryGrowthRate :: Decimal
@@ -42,6 +50,8 @@ data MonthState = MonthState
     , emergencyFundBalance :: Money
     , trad401k :: Account
     , roth401k :: Account
+    , brokerage :: Account
     , taxes :: Money
+    , salary :: Money
     }
     deriving (Show)

@@ -1,17 +1,14 @@
 module Augur (augurMain) where
 
-import Augur.Types
 import Augur.Config
-import Augur.Simulation
 import Augur.Pretty
-import Data.Time.Calendar.Month
+import Augur.Simulation
+import Augur.Types
 
 augurMain :: IO ()
 augurMain = do
-  let startMonth = MkMonth $ (2026 * 12) + (5 - 1)
-      initialState = initState startMonth
-      months = simulate 6 defaultConfig initialState
+    let state = initState defaultConfig
+        months = simulate 12 defaultConfig state
 
-  printSummary defaultConfig
-  printSimulation months
-
+    printSummary defaultConfig
+    printSimulation [last months]

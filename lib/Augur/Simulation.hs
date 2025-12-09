@@ -10,25 +10,41 @@ import Augur.Types
 import Data.Decimal
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
-import GHC.Conc (retry)
 
-initState :: Month -> MonthState
-initState startMonth = MonthState (addMonths (-1) startMonth) 0 0 0 0 0 roth trad 0
+initState :: ModelConfig -> MonthState
+initState config = MonthState (addMonths (-1) config.start) 0 0 0 0 0 roth trad brokerage 0 config.initialSalary
   where
     roth = Account 0 0 0 Roth
     trad = Account 0 0 0 Traditional
+    brokerage = Account 0 0 0 Taxable
 
 monthlyExpenses :: ModelConfig -> Money
 monthlyExpenses config = sum $ map snd config.expenses
-
-calculateTaxes :: ModelConfig -> Money -> Money
-calculateTaxes config taxableIncome = taxableIncome * config.effectiveTaxRate
 
 calculateReturnMonth :: ModelConfig -> Account -> Money
 calculateReturnMonth config acc = realToFrac $ balanceDouble * monthlyFactor
   where
     balanceDouble = realToFrac acc.balance :: Double
-    monthlyFactor = (1 + realToFrac config.annualReturn :: Double) ** (1/12) - 1
+    monthlyFactor = (1 + realToFrac config.annualReturn :: Double) ** (1 / 12) - 1
+
+calculateRetirementContributions :: ModelConfig -> Money -> Integer -> (Money, Money)
+calculateRetirementContributions config grossIncome yearsElapsed = (trad401kContrib, roth401kContrib)
+  where
+    -- Calculate 401k limit (grows with inflation)
+    monthly401kLimit = (23500 * (1.015 ^ yearsElapsed)) / 12
+
+    -- Calculate desired contributions
+    desiredTrad = grossIncome * config.trad401kContrib
+    desiredRoth = grossIncome * config.roth401kContrib
+    totalDesired = desiredTrad + desiredRoth
+
+    -- Cap contributions proportionally if they exceed limit
+    (trad401kContrib, roth401kContrib) =
+        if totalDesired > monthlyLimit
+            then
+                let scale = monthlyLimit / totalDesired
+                 in (desiredTrad * scale, desiredRoth * scale)
+            else (desiredTrad, desiredRoth)
 
 updateMonth :: ModelConfig -> MonthState -> MonthState
 updateMonth config prev =
@@ -41,27 +57,52 @@ updateMonth config prev =
         , emergencyFundBalance
         , roth401k
         , trad401k
+        , brokerage
         , taxes = prev.taxes + taxes
+        , salary
         }
   where
     month = addMonths 1 prev.month
-    grossIncome = config.salary / 12
-    taxableIncome = grossIncome - trad401kContrib
+    yearsElapsed = diffMonths month config.start `div` 12
 
-    -- netIncome: Income after tax
-    taxes = calculateTaxes config taxableIncome
+    -- 1. Calculate income
+    salary = config.initialSalary * ((1 + config.salaryGrowthRate) ^ yearsElapsed)
+    grossIncome = salary / 12
+
+    -- 2. Calculate retiremenet contributions
+    (trad401kContrib, roth401kContrib) = calculateRetirementContributions config grossIncome yearsElapsed
+
+    -- 3. Calculate taxes
+    taxes = config.taxRate * (grossIncome - trad401kContrib)
+    taxableIncome = grossIncome - trad401kContrib
     netIncome = taxableIncome - taxes
 
-    totalExpenses = monthlyExpenses config
-    -- netChange: Income after expenses
-    netChange = netIncome - totalExpenses
+    -- 4. Calculate expenses
+    expenseMultiplier = (1 + config.inflationRate) ^ yearsElapsed
+    totalExpenses = monthlyExpenses config * expenseMultiplier
 
-    -- Retirement is calculated based on income
-    trad401kContrib = grossIncome * config.trad401kContrib
-    roth401kContrib = netIncome * config.roth401kContrib
+    -- 5. Calculate cash
+    netIncomeAfterRoth = netIncome - roth401kContrib
+    netChange = netIncomeAfterRoth - totalExpenses
 
+    -- 6. Emergency fund
+    emergencyFundTarget = calculateEmergencyFund config
+    emergencyFundContrib = if prev.emergencyFundBalance >= emergencyFundTarget
+                           then 0
+                           else min (netChange * 0.7) (emergencyFundTarget - prev.emergencyFundBalance)
+    emergencyFundBalance = prev.emergencyFundBalance + emergencyFundContrib
+
+    -- 7. Brokerage (gets whatever is left)
+    availableForBrokerage = netChange - emergencyFundContrib
+    brokerageContrib = max 0 (availableForBrokerage * config.brokerageContrib)
+
+    -- 8. Cash
+    cashBalance = prev.cashBalance + availableForBrokerage - brokerageContrib
+
+    -- 9. Account growth
     trad401kGrowth = calculateReturnMonth config prev.trad401k
     roth401kGrowth = calculateReturnMonth config prev.roth401k
+    brokerageGrowth = calculateReturnMonth config prev.brokerage
 
     trad401k =
         Account
@@ -79,10 +120,13 @@ updateMonth config prev =
             , accountType = Roth
             }
 
-    -- Everything else is calculated after tax, after expenses, using money from netChange
-    cashBalance = prev.cashBalance + netChange - emergencyFundContrib
-    emergencyFundContrib = emergencyFundBalance - prev.emergencyFundBalance
-    emergencyFundBalance = updateEmergencyFundBalance prev.emergencyFundBalance (calculateEmergencyFund config) netChange
+    brokerage =
+        Account
+            { balance = prev.brokerage.balance + brokerageContrib + brokerageGrowth
+            , contributions = prev.brokerage.contributions + brokerageContrib
+            , gains = prev.brokerage.gains + brokerageGrowth
+            , accountType = Taxable
+            }
 
 updateEmergencyFundBalance :: Money -> Money -> Money -> Money
 updateEmergencyFundBalance curr target income
