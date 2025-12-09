@@ -21,39 +21,14 @@ initState config = MonthState (addMonths (-1) config.start) 0 0 0 0 0 roth trad 
 monthlyExpenses :: ModelConfig -> Money
 monthlyExpenses config = sum $ map snd config.expenses
 
-calculateReturnMonth :: ModelConfig -> Account -> Money
-calculateReturnMonth config acc = realToFrac $ balanceDouble * monthlyFactor
-  where
-    balanceDouble = realToFrac acc.balance :: Double
-    monthlyFactor = (1 + realToFrac config.annualReturn :: Double) ** (1 / 12) - 1
-
-calculateRetirementContributions :: ModelConfig -> Money -> Integer -> (Money, Money)
-calculateRetirementContributions config grossIncome yearsElapsed = (trad401kContrib, roth401kContrib)
-  where
-    -- Calculate 401k limit (grows with inflation)
-    monthly401kLimit = (23500 * (1.015 ^ yearsElapsed)) / 12
-
-    -- Calculate desired contributions
-    desiredTrad = grossIncome * config.trad401kContrib
-    desiredRoth = grossIncome * config.roth401kContrib
-    totalDesired = desiredTrad + desiredRoth
-
-    -- Cap contributions proportionally if they exceed limit
-    (trad401kContrib, roth401kContrib) =
-        if totalDesired > monthlyLimit
-            then
-                let scale = monthlyLimit / totalDesired
-                 in (desiredTrad * scale, desiredRoth * scale)
-            else (desiredTrad, desiredRoth)
-
 updateMonth :: ModelConfig -> MonthState -> MonthState
 updateMonth config prev =
     MonthState
         { month
         , income = netIncome
-        , totalExpenses
+        , totalExpenses = expenses
         , netChange
-        , cashBalance
+        , cashBalance = prev.cashBalance + netChange - sum savingsMinus 
         , emergencyFundBalance
         , roth401k
         , trad401k
@@ -69,69 +44,90 @@ updateMonth config prev =
     salary = config.initialSalary * ((1 + config.salaryGrowthRate) ^ yearsElapsed)
     grossIncome = salary / 12
 
-    -- 2. Calculate retiremenet contributions
-    (trad401kContrib, roth401kContrib) = calculateRetirementContributions config grossIncome yearsElapsed
+    -- 2. Functions to calculate retiremenet contributions
+    updateAccountPop = updateAccount config grossIncome yearsElapsed
+    accountContribution :: Account -> Account -> Money
+    accountContribution new old = new.contributions - old.contributions
+  
+    trad401k = updateAccountPop prev.trad401k
 
     -- 3. Calculate taxes
-    taxes = config.taxRate * (grossIncome - trad401kContrib)
-    taxableIncome = grossIncome - trad401kContrib
-    netIncome = taxableIncome - taxes
+    taxDeductableItems = [accountContribution trad401k prev.trad401k]
+    taxes = calculateTaxes config grossIncome taxDeductableItems
+    netIncome = grossIncome - taxes
 
-    -- 4. Calculate expenses
-    expenseMultiplier = (1 + config.inflationRate) ^ yearsElapsed
-    totalExpenses = monthlyExpenses config * expenseMultiplier
+    -- 4. Contribute to a Roth 401k
+    roth401k = updateAccountPop prev.roth401k
 
-    -- 5. Calculate cash
-    netIncomeAfterRoth = netIncome - roth401kContrib
-    netChange = netIncomeAfterRoth - totalExpenses
+    -- 5. Calculate cash after basic expenses
+    expenses = calculateExpenses config.expenses yearsElapsed
+    netChange = netIncome - expenses
 
-    -- 6. Emergency fund
-    emergencyFundTarget = calculateEmergencyFund config
-    emergencyFundContrib = if prev.emergencyFundBalance >= emergencyFundTarget
-                           then 0
-                           else min (netChange * 0.7) (emergencyFundTarget - prev.emergencyFundBalance)
-    emergencyFundBalance = prev.emergencyFundBalance + emergencyFundContrib
+    -- 6. Ensure filled emergency fund
+    emergencyFundBalance = updateEmergencyFundBalance prev.emergencyFundBalance (calculateEmergencyFund config) netChange
+    emergencyFundContrib = emergencyFundBalance - prev.emergencyFundBalance
 
-    -- 7. Brokerage (gets whatever is left)
-    availableForBrokerage = netChange - emergencyFundContrib
-    brokerageContrib = max 0 (availableForBrokerage * config.brokerageContrib)
+    -- 7. Contribute to a brokerage account after emergency fund
+    availableForBrokerage = max 0 (netChange - emergencyFundContrib)
+    brokerage = updateAccount config availableForBrokerage yearsElapsed prev.brokerage
 
-    -- 8. Cash
-    cashBalance = prev.cashBalance + availableForBrokerage - brokerageContrib
+    -- 8. Calculate leftover cash after post-tax expenses and saving
+    savingsMinus =
+        [ emergencyFundContrib
+        , accountContribution brokerage prev.brokerage
+        , accountContribution roth401k prev.roth401k
+        ]
 
-    -- 9. Account growth
-    trad401kGrowth = calculateReturnMonth config prev.trad401k
-    roth401kGrowth = calculateReturnMonth config prev.roth401k
-    brokerageGrowth = calculateReturnMonth config prev.brokerage
+calculateTaxes :: ModelConfig -> Money -> [Money] -> Money
+calculateTaxes config gross deductions = config.taxRate * (gross - sum deductions)
 
-    trad401k =
+calculateExpenses :: [(String, Money)] -> Integer -> Money
+calculateExpenses expenses yearsElapsed = sum $ map snd expenses
+
+updateAccount :: ModelConfig -> Money -> Integer -> Account -> Account
+updateAccount config pool yearsElapsed account = case account.accountType of
+    Roth ->
         Account
-            { balance = prev.trad401k.balance + trad401kContrib + trad401kGrowth
-            , contributions = prev.trad401k.contributions + trad401kContrib
-            , gains = prev.trad401k.gains + trad401kGrowth
-            , accountType = Traditional
-            }
-
-    roth401k =
-        Account
-            { balance = prev.roth401k.balance + roth401kContrib + roth401kGrowth
-            , contributions = prev.roth401k.contributions + roth401kContrib
-            , gains = prev.roth401k.gains + roth401kGrowth
+            { balance = account.balance + contribution + gain
+            , contributions = account.contributions + contribution
+            , gains = account.gains + gain
             , accountType = Roth
             }
-
-    brokerage =
+      where
+        contribution = config.roth401kContrib * pool
+    Traditional ->
         Account
-            { balance = prev.brokerage.balance + brokerageContrib + brokerageGrowth
-            , contributions = prev.brokerage.contributions + brokerageContrib
-            , gains = prev.brokerage.gains + brokerageGrowth
+            { balance = account.balance + contribution + gain
+            , contributions = account.contributions + contribution
+            , gains = account.gains + gain
+            , accountType = Traditional
+            }
+      where
+        contribution = config.trad401kContrib * pool
+    Taxable ->
+        Account
+            { balance = account.balance + contribution + gain
+            , contributions = account.contributions + contribution
+            , gains = account.gains + gain
             , accountType = Taxable
             }
+      where
+        contribution = config.brokerageContrib * pool
+        -- monthly401kLimit = (23500 * (1.015 ^ yearsElapsed)) / 12
+        
+  where
+    gain = calculateReturnMonth config account
+
+calculateReturnMonth :: ModelConfig -> Account -> Money
+calculateReturnMonth config acc = realToFrac $ balanceDouble * monthlyFactor
+  where
+    balanceDouble = realToFrac acc.balance :: Double
+    monthlyFactor = (1 + realToFrac config.annualReturn :: Double) ** (1 / 12) - 1
 
 updateEmergencyFundBalance :: Money -> Money -> Money -> Money
-updateEmergencyFundBalance curr target income
+updateEmergencyFundBalance curr target available
     | curr >= target = curr
-    | otherwise = min (curr + (income * flex_pct)) target
+    | otherwise = min (curr + (available * flex_pct)) target
   where
     flex_pct = 0.7
 
@@ -142,4 +138,4 @@ calculateEmergencyFund c = n * e
     n = realToFrac c.emergencyFundMonths
 
 simulate :: Int -> ModelConfig -> MonthState -> [MonthState]
-simulate n config initial = take n $ tail $ iterate (updateMonth config) initial
+simulate n config initial = take n $ drop 1 $ iterate (updateMonth config) initial
