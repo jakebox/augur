@@ -45,11 +45,10 @@ updateMonth config prev =
     grossIncome = salary / 12
 
     -- 2. Functions to calculate retiremenet contributions
-    updateAccountPop = updateAccount config grossIncome yearsElapsed
     accountContribution :: Account -> Account -> Money
     accountContribution new old = new.contributions - old.contributions
   
-    trad401k = updateAccountPop prev.trad401k
+    trad401k = updateAccount config grossIncome yearsElapsed prev.trad401k
 
     -- 3. Calculate taxes
     taxDeductableItems = [accountContribution trad401k prev.trad401k]
@@ -57,11 +56,12 @@ updateMonth config prev =
     netIncome = grossIncome - taxes
 
     -- 4. Contribute to a Roth 401k
-    roth401k = updateAccountPop prev.roth401k
+    roth401k = updateAccount config netIncome yearsElapsed prev.roth401k
+    roth401kContrib = accountContribution roth401k prev.roth401k
 
     -- 5. Calculate cash after basic expenses
     expenses = calculateExpenses config.expenses yearsElapsed
-    netChange = netIncome - expenses
+    netChange = netIncome - expenses - roth401kContrib
 
     -- 6. Ensure filled emergency fund
     emergencyFundBalance = updateEmergencyFundBalance prev.emergencyFundBalance (calculateEmergencyFund config) netChange
@@ -75,7 +75,6 @@ updateMonth config prev =
     savingsMinus =
         [ emergencyFundContrib
         , accountContribution brokerage prev.brokerage
-        , accountContribution roth401k prev.roth401k
         ]
 
 calculateTaxes :: ModelConfig -> Money -> [Money] -> Money
@@ -94,7 +93,7 @@ updateAccount config pool yearsElapsed account = case account.accountType of
             , accountType = Roth
             }
       where
-        contribution = config.roth401kContrib * pool
+        contribution = max (config.roth401kContrib * pool) (monthly401kLimit * config.roth401kContrib)
     Traditional ->
         Account
             { balance = account.balance + contribution + gain
@@ -103,7 +102,7 @@ updateAccount config pool yearsElapsed account = case account.accountType of
             , accountType = Traditional
             }
       where
-        contribution = config.trad401kContrib * pool
+        contribution = max (config.trad401kContrib * pool) (monthly401kLimit * config.trad401kContrib)
     Taxable ->
         Account
             { balance = account.balance + contribution + gain
@@ -113,10 +112,10 @@ updateAccount config pool yearsElapsed account = case account.accountType of
             }
       where
         contribution = config.brokerageContrib * pool
-        -- monthly401kLimit = (23500 * (1.015 ^ yearsElapsed)) / 12
         
   where
     gain = calculateReturnMonth config account
+    monthly401kLimit = (23500 * (1.015 ^ yearsElapsed)) / 12
 
 calculateReturnMonth :: ModelConfig -> Account -> Money
 calculateReturnMonth config acc = realToFrac $ balanceDouble * monthlyFactor
