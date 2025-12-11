@@ -17,12 +17,16 @@ library
       Augur.Config
       Augur.Pretty
       Augur.Simulation
+      Augur.Calculations
       Augur.Types
+      Augur.Export
     build-depends:
       base ^>=4.19.2.0,
       time,
       Decimal,
-      containers
+      containers,
+      aeson,
+      bytestring
 
 executable augur
     import: default-settings

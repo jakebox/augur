@@ -1,16 +1,31 @@
-module Augur.Types (Money, AccountBalances, ModelConfig (..), MonthState (..), Account (..), AccountType (..), TaxBracket(..)) where
+module Augur.Types (
+    Money,
+    AccountBalances,
+    ModelConfig (..),
+    MonthState (..),
+    Account (..),
+    AccountType (..),
+    TaxBracket (..),
+    AccountUpdate (..),
+) where
 
 import Data.Decimal
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
+import GHC.Generics (Generic)
 
 type Money = Decimal
 
 type AccountBalances = M.Map String Money
 type AccountAllocations = M.Map String Decimal
 
-data AccountType = Roth | Traditional | Taxable
-    deriving (Show)
+data AccountType = Roth | Traditional | Taxable | Cash
+    deriving (Show, Generic)
+
+data AccountUpdate = AccountUpdate
+    { contribution :: Money
+    , account :: Account
+    }
 
 data TaxBracket = TaxBracket
     { threshold :: Money
@@ -30,6 +45,7 @@ data ModelConfig = ModelConfig
     , annualReturn :: Decimal
     , salaryGrowthRate :: Decimal
     , inflationRate :: Decimal
+    , retirement :: Month
     }
     deriving (Show)
 
@@ -39,19 +55,18 @@ data Account = Account
     , gains :: Money
     , accountType :: AccountType
     }
-    deriving (Show)
+    deriving (Show, Generic)
 
 data MonthState = MonthState
     { month :: Month
     , income :: Money
     , totalExpenses :: Money
-    , netChange :: Money
-    , cashBalance :: Money
-    , emergencyFundBalance :: Money
     , trad401k :: Account
     , roth401k :: Account
     , brokerage :: Account
+    , cash :: Account
+    , emergencyFund :: Account
     , taxes :: Money
     , salary :: Money
     }
-    deriving (Show)
+    deriving (Show, Generic)
