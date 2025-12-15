@@ -9,6 +9,7 @@ import Augur.Calculations
 import Augur.Types
 
 import Data.Decimal
+import Data.List (mapAccumL)
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
 import Debug.Trace
@@ -20,7 +21,7 @@ initState config = MonthState (addMonths (-1) config.start) 0 0 trad roth broker
     trad = Account 0 0 0 Traditional
     brokerage = Account 0 0 0 Taxable
     cash = Account 0 0 0 Cash
-    emergencyFund = Account 0 0 0 Cash
+    emergencyFund = Account 0 0 0 Emergency
 
 updatePreTax :: ModelConfig -> MonthState -> Integer -> (MonthState, Money)
 updatePreTax config prev yrs =
@@ -38,7 +39,7 @@ updatePreTax config prev yrs =
 
         remainder = income - trad401kUpdate.contribution
      in
-        (MonthState
+        ( MonthState
             { month = prev.month
             , income
             , totalExpenses = prev.totalExpenses
@@ -49,7 +50,9 @@ updatePreTax config prev yrs =
             , cash = prev.cash
             , taxes
             , salary = grossIncome * 12
-            }, remainder)
+            }
+        , remainder
+        )
   where
     updateAccountFilled account money = updateAccount config money yrs account
 
@@ -66,33 +69,27 @@ updatePostTax config afterTax yrs bal =
 
         remainder' = remainder - emergencyFundUpdate.contribution
 
-        -- Roth 401k
-        roth401kUpdate = updateAccountFilled afterTax.roth401k remainder'
-
-        remainder'' = remainder' - roth401kUpdate.contribution
-
-        -- Brokerage account
-        brokerageUpdate = updateAccountFilled afterTax.brokerage remainder''
-
-        remainder''' = remainder'' - brokerageUpdate.contribution
-
-        -- 8. Put the remainder in cash
-        cashUpdate = updateAccountFilled afterTax.cash remainder'''
+        (_, [newRoth, newBrokerage, newCash]) =
+            mapAccumL processAccount remainder' [afterTax.roth401k, afterTax.brokerage, afterTax.cash]
      in
         MonthState
             { month = afterTax.month
             , income = afterTax.income
             , totalExpenses
-            , roth401k = roth401kUpdate.account
+            , roth401k = newRoth
             , trad401k = afterTax.trad401k
-            , brokerage = brokerageUpdate.account
+            , brokerage = newBrokerage
             , emergencyFund = emergencyFundUpdate.account
-            , cash = cashUpdate.account
+            , cash = newCash
             , taxes = afterTax.taxes
             , salary = afterTax.salary
             }
   where
     updateAccountFilled account money = updateAccount config money yrs account
+    processAccount :: Money -> Account -> (Money, Account)
+    processAccount remainder account = (max 0 remainder - updatedAcc.contribution, updatedAcc.account)
+      where
+        updatedAcc = updateAccountFilled account remainder
 
 updateMonth :: ModelConfig -> MonthState -> MonthState
 updateMonth config prev =
