@@ -19,7 +19,7 @@ type Money = Decimal
 type AccountBalances = M.Map String Money
 type AccountAllocations = M.Map String Decimal
 
-data AccountType = Roth | Traditional | Taxable | Cash
+data AccountType = Roth | Traditional | Taxable | Cash | Emergency
     deriving (Show, Generic)
 
 data AccountUpdate = AccountUpdate

@@ -9,7 +9,7 @@ import Augur.Export (writeToJson)
 augurMain :: IO ()
 augurMain = do
     let state = initState defaultConfig
-        months = simulate 18 defaultConfig state
+        months = simulate 12 defaultConfig state
 
     printSummary defaultConfig
     printSimulation months

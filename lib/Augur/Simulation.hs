@@ -63,14 +63,15 @@ updatePostTax config afterTax yrs bal =
         totalExpenses = calculateExpenses config yrs
         remainder = bal - totalExpenses
 
-        -- Contribute to emergency fund
-        contrib = calculateEmergencyFundContribution config afterTax.emergencyFund remainder
-        emergencyFundUpdate = updateAccountFilled afterTax.emergencyFund contrib
-
-        remainder' = remainder - emergencyFundUpdate.contribution
-
-        (_, [newRoth, newBrokerage, newCash]) =
-            mapAccumL processAccount remainder' [afterTax.roth401k, afterTax.brokerage, afterTax.cash]
+        (_, [newRoth, newEmergency, newBrokerage, newCash]) =
+            mapAccumL
+                processAccount
+                remainder
+                [ afterTax.roth401k
+                , afterTax.emergencyFund
+                , afterTax.brokerage
+                , afterTax.cash
+                ]
      in
         MonthState
             { month = afterTax.month
@@ -79,7 +80,7 @@ updatePostTax config afterTax yrs bal =
             , roth401k = newRoth
             , trad401k = afterTax.trad401k
             , brokerage = newBrokerage
-            , emergencyFund = emergencyFundUpdate.account
+            , emergencyFund = newEmergency
             , cash = newCash
             , taxes = afterTax.taxes
             , salary = afterTax.salary
@@ -87,7 +88,7 @@ updatePostTax config afterTax yrs bal =
   where
     updateAccountFilled account money = updateAccount config money yrs account
     processAccount :: Money -> Account -> (Money, Account)
-    processAccount remainder account = (max 0 remainder - updatedAcc.contribution, updatedAcc.account)
+    processAccount remainder account = (remainder - updatedAcc.contribution, updatedAcc.account)
       where
         updatedAcc = updateAccountFilled account remainder
 
@@ -129,7 +130,7 @@ updateAccount config pool yearsElapsed account =
             }
   where
     gain = calculateReturnMonth config account
-    contribution = calculateContribution config pool yearsElapsed account.accountType
+    contribution = calculateContribution config pool yearsElapsed account
 
 simulate :: Int -> ModelConfig -> MonthState -> [MonthState]
 simulate n config initial = take n $ drop 1 $ iterate (updateMonth config) initial

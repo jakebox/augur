@@ -30,9 +30,7 @@ printSummary :: ModelConfig -> IO ()
 printSummary config = do
     putStrLn "Monthly Summary:"
     putStrLn $ "  Gross Monthly: $" ++ formatMoney (config.initialSalary / 12)
-    -- putStrLn $ "  Net Monthly: $" ++ formatMoney (monthlyNetIncome config)
     putStrLn $ "  Total Expenses: $" ++ formatMoney (monthlyExpenses config)
-    -- putStrLn $ "  Monthly Savings: $" ++ formatMoney (monthlyNetIncome config - monthlyExpenses config)
     putStrLn $ "  Target Emergency Fund Size: $" ++ formatMoney (calculateEmergencyFund config)
     putStrLn "\nExpense Breakdown:"
     mapM_ (\(name, amt) -> putStrLn $ "  " ++ name ++ ": $" ++ formatMoney amt) config.expenses
