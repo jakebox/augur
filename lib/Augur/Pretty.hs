@@ -22,9 +22,9 @@ formatAccount :: Account -> String
 formatAccount a =
     printf "  %-12s Balance: $%s | Contrib: $%s | Gains: $%s"
         (show a.accountType)
-        (formatMoney a.balance)
-        (formatMoney a.contributions)
-        (formatMoney a.gains)
+        (formatMoney a._balance)
+        (formatMoney a._contributions)
+        (formatMoney a._gains)
 
 printSummary :: ModelConfig -> IO ()
 printSummary config = do
@@ -37,9 +37,9 @@ printSummary config = do
 
 printMonthState :: MonthState -> IO ()
 printMonthState state = do
-    putStrLn $ "Month: " ++ show state.month
-    putStrLn $ "Income: $" ++ formatMoney state.income
-    putStrLn $ "Expenses: $" ++ formatMoney state.totalExpenses
+    putStrLn $ "Month: " ++ show state._month
+    putStrLn $ "Income: $" ++ formatMoney state._income
+    putStrLn $ "Expenses: $" ++ formatMoney state._totalExpenses
 
 printSimulation :: [MonthState] -> IO ()
 printSimulation states = do
@@ -62,16 +62,16 @@ printSimulation states = do
         -- 1. Print the main row with fixed-width money values (widths match the header)
         putStrLn $
             printf "%-5s %s %s %s %s"
-                (show s.month)  -- 5 wide (left aligned)
-                (formatMoney s.income)
-                (formatMoney s.totalExpenses)
-                (formatMoney s.taxes)
-                (formatMoney s.salary)
+                (show s._month)  -- 5 wide (left aligned)
+                (formatMoney s._income)
+                (formatMoney s._totalExpenses)
+                (formatMoney s._taxes)
+                (formatMoney s._salary)
 
         -- 2. Print the detailed retirement accounts on new, indented lines
-        putStrLn $ formatAccount s.trad401k
-        putStrLn $ formatAccount s.roth401k
-        putStrLn $ formatAccount s.brokerage
-        putStrLn $ formatAccount s.cash
-        putStrLn $ formatAccount s.emergencyFund
+        putStrLn $ formatAccount s._trad401k
+        putStrLn $ formatAccount s._roth401k
+        putStrLn $ formatAccount s._brokerage
+        putStrLn $ formatAccount s._cash
+        putStrLn $ formatAccount s._emergencyFund
         putStrLn "" -- Add a blank line for visual separation between months

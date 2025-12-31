@@ -1,18 +1,12 @@
-module Augur.Types (
-    Money,
-    AccountBalances,
-    ModelConfig (..),
-    MonthState (..),
-    Account (..),
-    AccountType (..),
-    TaxBracket (..),
-    AccountUpdate (..),
-) where
+{-# LANGUAGE TemplateHaskell #-}
+
+module Augur.Types where
 
 import Data.Decimal
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
 import GHC.Generics (Generic)
+import Lens.Micro.TH (makeLenses, makeLensesFor)
 
 type Money = Decimal
 
@@ -50,23 +44,29 @@ data ModelConfig = ModelConfig
     deriving (Show)
 
 data Account = Account
-    { balance :: Money
-    , contributions :: Money
-    , gains :: Money
+    { _balance :: Money
+    , _contributions :: Money
+    , _gains :: Money
     , accountType :: AccountType
     }
     deriving (Show, Generic)
 
+emptyAccount :: AccountType -> Account
+emptyAccount = Account 0 0 0
+
 data MonthState = MonthState
-    { month :: Month
-    , income :: Money
-    , totalExpenses :: Money
-    , trad401k :: Account
-    , roth401k :: Account
-    , brokerage :: Account
-    , cash :: Account
-    , emergencyFund :: Account
-    , taxes :: Money
-    , salary :: Money
+    { _month :: Month
+    , _income :: Money
+    , _totalExpenses :: Money
+    , _trad401k :: Account
+    , _roth401k :: Account
+    , _brokerage :: Account
+    , _cash :: Account
+    , _emergencyFund :: Account
+    , _taxes :: Money
+    , _salary :: Money
     }
     deriving (Show, Generic)
+
+makeLenses ''Account
+makeLenses ''MonthState

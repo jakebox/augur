@@ -8,129 +8,97 @@ module Augur.Simulation (
 import Augur.Calculations
 import Augur.Types
 
+import Control.Monad.Reader
+import Control.Monad.State
 import Data.Decimal
 import Data.List (mapAccumL)
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
 import Debug.Trace
+import Lens.Micro
+import Lens.Micro.Mtl
+
+type Sim a = ReaderT ModelConfig (State MonthState) a
 
 initState :: ModelConfig -> MonthState
-initState config = MonthState (addMonths (-1) config.start) 0 0 trad roth brokerage cash emergencyFund 0 config.initialSalary
-  where
-    roth = Account 0 0 0 Roth
-    trad = Account 0 0 0 Traditional
-    brokerage = Account 0 0 0 Taxable
-    cash = Account 0 0 0 Cash
-    emergencyFund = Account 0 0 0 Emergency
+initState cfg =
+    MonthState
+        { _month = addMonths (-1) cfg.start
+        , _income = 0
+        , _totalExpenses = 0
+        , _trad401k = emptyAccount Traditional
+        , _roth401k = emptyAccount Roth
+        , _brokerage = emptyAccount Taxable
+        , _cash = emptyAccount Cash
+        , _emergencyFund = emptyAccount Emergency
+        , _taxes = 0
+        , _salary = cfg.initialSalary
+        }
 
-updatePreTax :: ModelConfig -> MonthState -> Integer -> (MonthState, Money)
-updatePreTax config prev yrs =
-    let
-        -- 1. Calculate month's gross income
-        grossIncome = calculateSalaryMonth config yrs
+updatePreTax :: Integer -> Sim Money
+updatePreTax yrs = do
+    cfg <- ask
 
-        -- Traditional 401k
-        trad401kUpdate = updateAccountFilled prev.trad401k grossIncome
+    let grossIncome = calculateSalaryMonth cfg yrs
 
-        -- Calculate taxes and net income
-        taxDeductableItems = [trad401kUpdate.contribution]
-        taxes = calculateTaxes config grossIncome taxDeductableItems yrs
-        income = grossIncome - taxes
+    zoom trad401k $ do
+        gain <- gets (calculateReturnMonth cfg)
+        balance += gain
 
-        remainder = income - trad401kUpdate.contribution
-     in
-        ( MonthState
-            { month = prev.month
-            , income
-            , totalExpenses = prev.totalExpenses
-            , roth401k = prev.roth401k
-            , trad401k = trad401kUpdate.account
-            , brokerage = prev.brokerage
-            , emergencyFund = prev.emergencyFund
-            , cash = prev.cash
-            , taxes
-            , salary = grossIncome * 12
-            }
-        , remainder
-        )
-  where
-    updateAccountFilled account money = updateAccount config money yrs account
+    let deductions = []
+        taxesDone = calculateTaxes cfg grossIncome deductions yrs
 
-updatePostTax :: ModelConfig -> MonthState -> Integer -> Money -> MonthState
-updatePostTax config afterTax yrs bal =
-    let
-        -- Calculate take-home cash after taxes/pre-tax contributions and basic expenses
-        totalExpenses = calculateExpenses config yrs
-        remainder = bal - totalExpenses
+    taxes .= taxesDone
+    income .= (grossIncome - taxesDone)
+    salary .= (grossIncome * 12)
 
-        (_, [newRoth, newEmergency, newBrokerage, newCash]) =
-            mapAccumL
-                processAccount
-                remainder
-                [ afterTax.roth401k
-                , afterTax.emergencyFund
-                , afterTax.brokerage
-                , afterTax.cash
-                ]
-     in
-        MonthState
-            { month = afterTax.month
-            , income = afterTax.income
-            , totalExpenses
-            , roth401k = newRoth
-            , trad401k = afterTax.trad401k
-            , brokerage = newBrokerage
-            , emergencyFund = newEmergency
-            , cash = newCash
-            , taxes = afterTax.taxes
-            , salary = afterTax.salary
-            }
-  where
-    updateAccountFilled account money = updateAccount config money yrs account
-    processAccount :: Money -> Account -> (Money, Account)
-    processAccount remainder account = (remainder - updatedAcc.contribution, updatedAcc.account)
-      where
-        updatedAcc = updateAccountFilled account remainder
+    return (grossIncome - taxesDone)
 
-updateMonth :: ModelConfig -> MonthState -> MonthState
-updateMonth config prev =
-    let
-        -- 0. Basic time details
-        month = addMonths 1 prev.month
-        yearsElapsed = diffMonths month config.start `div` 12
+getYearsElapsed :: Sim Integer
+getYearsElapsed = do
+    startMonth <- asks start -- Reader
+    current <- use month -- State
+    pure $ diffMonths current startMonth `div` 12
 
-        -- 1. Pre-tax update
-        (preTax, remainder) = updatePreTax config prev yearsElapsed
 
-        -- 2. Post-tax update
-        postTax :: MonthState = updatePostTax config preTax yearsElapsed remainder
-     in
-        MonthState
-            { month
-            , income = preTax.income
-            , totalExpenses = postTax.totalExpenses
-            , roth401k = postTax.roth401k
-            , trad401k = preTax.trad401k
-            , brokerage = postTax.brokerage
-            , emergencyFund = postTax.emergencyFund
-            , cash = postTax.cash
-            , taxes = preTax.taxes
-            , salary = preTax.salary
-            }
+updateMonth :: Sim ()
+updateMonth = do
+    month %= addMonths 1
+    cfg <- ask
+    yrs <- getYearsElapsed
 
-updateAccount :: ModelConfig -> Money -> Integer -> Account -> AccountUpdate
-updateAccount config pool yearsElapsed account =
-    AccountUpdate
-        contribution
-        Account
-            { balance = account.balance + contribution + gain
-            , contributions = account.contributions + contribution
-            , gains = account.gains + gain
-            , accountType = account.accountType
-            }
-  where
-    gain = calculateReturnMonth config account
-    contribution = calculateContribution config pool yearsElapsed account
+    -- 1. Income and pre-tax
+    remainder <- updatePreTax yrs
+
+    let monthlyExps = calculateExpenses cfg yrs
+    totalExpenses .= monthlyExps
+    let postExpSurplus = remainder - monthlyExps
+
+    leftover <-
+        fillAccount postExpSurplus roth401k
+            >>= (`fillAccount` emergencyFund)
+            >>= (`fillAccount` brokerage)
+
+    zoom cash $ balance += leftover
+
+fillAccount :: Money -> Lens' MonthState Account -> Sim Money
+fillAccount pool target = do
+    cfg <- ask
+    yrs <- getYearsElapsed
+
+    zoom target $ do
+        acc <- get
+        let gain = calculateReturnMonth cfg acc
+            contrib = calculateContribution cfg pool yrs acc
+
+        balance += (gain + contrib)
+        contributions += contrib
+        gains += gain
+
+        return (pool - contrib)
+
+stepMonth :: ModelConfig -> MonthState -> MonthState
+stepMonth config = execState (runReaderT updateMonth config)
 
 simulate :: Int -> ModelConfig -> MonthState -> [MonthState]
-simulate n config initial = take n $ drop 1 $ iterate (updateMonth config) initial
+simulate n config initial = take n $ drop 1 $ iterate (stepMonth config) initial
