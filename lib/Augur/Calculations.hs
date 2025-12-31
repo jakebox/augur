@@ -9,7 +9,6 @@ module Augur.Calculations (
 ) where
 
 import Augur.Types
-import Data.Decimal
 import Data.Map qualified as M
 import Data.Time.Calendar.Month
 

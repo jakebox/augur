@@ -57,7 +57,6 @@ emptyAccount = Account 0 0 0
 data MonthState = MonthState
     { _month :: Month
     , _income :: Money
-    , _totalExpenses :: Money
     , _trad401k :: Account
     , _roth401k :: Account
     , _brokerage :: Account

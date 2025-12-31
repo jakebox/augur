@@ -1,20 +1,11 @@
-module Augur.Simulation (
-    initState,
-    updateMonth,
-    simulate,
-    monthlyExpenses,
-) where
+module Augur.Simulation where
 
 import Augur.Calculations
 import Augur.Types
 
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.Decimal
-import Data.List (mapAccumL)
-import Data.Map qualified as M
 import Data.Time.Calendar.Month
-import Debug.Trace
 import Lens.Micro
 import Lens.Micro.Mtl
 
@@ -25,7 +16,6 @@ initState cfg =
     MonthState
         { _month = addMonths (-1) cfg.start
         , _income = 0
-        , _totalExpenses = 0
         , _trad401k = emptyAccount Traditional
         , _roth401k = emptyAccount Roth
         , _brokerage = emptyAccount Taxable
@@ -41,25 +31,25 @@ updatePreTax yrs = do
 
     let grossIncome = calculateSalaryMonth cfg yrs
 
-    zoom trad401k $ do
-        gain <- gets (calculateReturnMonth cfg)
-        balance += gain
+    contribution <- zoom trad401k $ do
+      account <- get
+      let gain = calculateReturnMonth cfg account
+          contrib = calculateContribution cfg grossIncome yrs account
 
-    let deductions = []
-        taxesDone = calculateTaxes cfg grossIncome deductions yrs
+      balance += (gain + contrib)
+      contributions += contrib
+      gains += gain
 
-    taxes .= taxesDone
-    income .= (grossIncome - taxesDone)
+      return contrib
+
+    let deductions = [contribution]
+        taxes' = calculateTaxes cfg grossIncome deductions yrs
+
+    taxes .= taxes'
+    income .= (grossIncome - taxes')
     salary .= (grossIncome * 12)
 
-    return (grossIncome - taxesDone)
-
-getYearsElapsed :: Sim Integer
-getYearsElapsed = do
-    startMonth <- asks start -- Reader
-    current <- use month -- State
-    pure $ diffMonths current startMonth `div` 12
-
+    return (grossIncome - taxes')
 
 updateMonth :: Sim ()
 updateMonth = do
@@ -67,19 +57,16 @@ updateMonth = do
     cfg <- ask
     yrs <- getYearsElapsed
 
-    -- 1. Income and pre-tax
-    remainder <- updatePreTax yrs
+    net <- updatePreTax yrs
 
-    let monthlyExps = calculateExpenses cfg yrs
-    totalExpenses .= monthlyExps
-    let postExpSurplus = remainder - monthlyExps
+    let postExpSurplus = net - calculateExpenses cfg yrs
 
-    leftover <-
-        fillAccount postExpSurplus roth401k
-            >>= (`fillAccount` emergencyFund)
-            >>= (`fillAccount` brokerage)
+    _ <- fillAccount postExpSurplus roth401k
+        >>= (`fillAccount` emergencyFund)
+        >>= (`fillAccount` brokerage)
+        >>= (`fillAccount` cash)
 
-    zoom cash $ balance += leftover
+    pure ()
 
 fillAccount :: Money -> Lens' MonthState Account -> Sim Money
 fillAccount pool target = do
@@ -87,15 +74,21 @@ fillAccount pool target = do
     yrs <- getYearsElapsed
 
     zoom target $ do
-        acc <- get
-        let gain = calculateReturnMonth cfg acc
-            contrib = calculateContribution cfg pool yrs acc
+        account <- get
+        let gain = calculateReturnMonth cfg account
+            contrib = calculateContribution cfg pool yrs account
 
         balance += (gain + contrib)
         contributions += contrib
         gains += gain
 
         return (pool - contrib)
+
+getYearsElapsed :: Sim Integer
+getYearsElapsed = do
+    startMonth <- asks start -- Reader
+    current <- use month -- State
+    pure $ diffMonths current startMonth `div` 12
 
 stepMonth :: ModelConfig -> MonthState -> MonthState
 stepMonth config = execState (runReaderT updateMonth config)

@@ -8,9 +8,7 @@ module Augur.Pretty (
 import Augur.Types
 
 import Augur.Calculations
-import Data.Decimal
 import Text.Printf
-import qualified Data.Map as M
 
 -- Prints the money amount as a string, padded with spaces to 10 characters wide, 
 -- with 0 decimal places.
@@ -39,16 +37,14 @@ printMonthState :: MonthState -> IO ()
 printMonthState state = do
     putStrLn $ "Month: " ++ show state._month
     putStrLn $ "Income: $" ++ formatMoney state._income
-    putStrLn $ "Expenses: $" ++ formatMoney state._totalExpenses
 
 printSimulation :: [MonthState] -> IO ()
 printSimulation states = do
     putStrLn "\nSimulation Results:"
     -- 1. Print the header using printf for alignment
-    printf "%-5s %13s %13s %10s %10s\n"
+    printf "%-5s %13s %10s %10s\n"
         ("Month" :: String)
         ("Income" :: String)
-        ("Expenses" :: String)
         ("Taxes" :: String)
         ("Salary" :: String)
     putStrLn $ replicate 73 '-' -- Separator line
@@ -61,10 +57,9 @@ printSimulation states = do
     printRow s = do
         -- 1. Print the main row with fixed-width money values (widths match the header)
         putStrLn $
-            printf "%-5s %s %s %s %s"
+            printf "%-5s %s %s %s"
                 (show s._month)  -- 5 wide (left aligned)
                 (formatMoney s._income)
-                (formatMoney s._totalExpenses)
                 (formatMoney s._taxes)
                 (formatMoney s._salary)
 
