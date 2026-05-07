@@ -3,13 +3,10 @@
 
 module Augur.Export (writeToJson) where
 
-import Augur.Pretty (formatMoney)
 import Augur.Types
 import Data.Aeson
-import Data.ByteString.Char8 qualified as B
 import Data.ByteString.Lazy qualified as BL
 import Data.Decimal (Decimal)
-import Data.Time.Calendar.Month (Month)
 import Text.Printf (printf)
 
 instance ToJSON MonthState

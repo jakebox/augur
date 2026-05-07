@@ -12,6 +12,7 @@ common default-settings
 library
     import: default-settings
     hs-source-dirs:   lib
+    ghc-options: -Wall
     exposed-modules:
       Augur
       Augur.Config
@@ -21,7 +22,7 @@ library
       Augur.Types
       Augur.Export
     build-depends:
-      base ^>=4.19.2.0,
+      base,
       time,
       Decimal,
       containers,
@@ -38,5 +39,5 @@ executable augur
     hs-source-dirs:   exe
     main-is:          Main.hs
     build-depends:
-        base ^>=4.19.2.0,
+        base,
         augur
